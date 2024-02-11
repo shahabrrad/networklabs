@@ -3,23 +3,23 @@ CC = gcc
 CFLAGS = -Wall -Werror
 
 # List of source files
-SRCS = pings.c pingc.c ip.c
+SRCS = ssftp.c ssftpd.c ip.c
 
 # List of object files (will be generated from source files)
 OBJS = $(SRCS:.c=.o)
 
 # List of binary targets
-TARGETS = pings.bin pingc.bin
+TARGETS = ssftp.bin ssftpd.bin
 
 # Headers for the binary
 DEPS = ip.h
 
 all: $(TARGETS)
 
-pings.bin: pings.o ip.o
+ssftp.bin: ssftp.o ip.o
 	$(CC) $(CFLAGS) $^ -o $@
 
-pingc.bin: pingc.o ip.o
+ssftpd.bin: ssftpd.o ip.o
 	$(CC) $(CFLAGS) $^ -o $@
 
 # Compile each source file into object files
