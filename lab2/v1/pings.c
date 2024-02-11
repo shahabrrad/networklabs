@@ -5,24 +5,12 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-
 #include "ip.h"
+#include "constants.h"
 
-#define DEFAULT_PORT 444444
-
-char* sockaddrToString(const struct sockaddr *addr) {
-    char ipString[INET6_ADDRSTRLEN];
-    if (addr->sa_family == AF_INET) {
-        struct sockaddr_in *ipv4 = (struct sockaddr_in *)addr;
-        inet_ntop(AF_INET, &(ipv4->sin_addr), ipString, INET6_ADDRSTRLEN);
-    } else if (addr->sa_family == AF_INET6) {
-        struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)addr;
-        inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipString, INET6_ADDRSTRLEN);
-    } else {
-        return NULL; // Invalid address family
-    }
-    return strdup(ipString); // Allocate memory and copy the string
-}
+#define DEFAULT_PORT 44444
+#define MAXIMUM_BINDS 10
+#define WAIT_TIME 555000
 
 
 int main() {
@@ -47,22 +35,24 @@ int main() {
     // Bind the socket to the server address and port
     int bind_attempts = 1;
     printf("Binding attempt no. %i\n", bind_attempts);
-    while ((bind(server_socket, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) && bind_attempts <10){
+    while ((bind(server_socket, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) && bind_attempts <MAXIMUM_BINDS){
         bind_attempts = bind_attempts + 1;
         server_port = server_port + 1;
         server_address.sin_port = htons(server_port);
         printf("Binding attempt no. %i\n", bind_attempts);
     }
-    if (bind_attempts >= 10) {
+    if (bind_attempts >= MAXIMUM_BINDS) {  //  10th bind attempt failed
         perror("Bind error");
         exit(1);
     }
+
+    //  store server's ip in server_ip
     get_ip(server_ip);
-    // printf("pings %s %d %%", server_ip, server_port);
-    // printf("Ping server is listening on port %d\n", server_port);
+    
     printf("pings %s %d %%\n", server_ip, server_port);
+
     while (1) {
-        char buffer[100];
+        char buffer[BUFFER_SIZE];
         memset(buffer, 0, sizeof(buffer));
 
         // Receive a ping request from a client
@@ -74,13 +64,13 @@ int main() {
             continue;
         }
 
-        // printf("%d , %c, %c, %d, %d, %d, %d\n", buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6]);
         // Extract the components of the message
-        uint16_t sequence_number = *(uint16_t*)(buffer); // ntohs(*(uint16_t*)(buffer));
-        uint8_t control_message = buffer[2]; //ntohs(buffer[2]);
+        uint16_t sequence_number = *(uint16_t*)(buffer); 
+        uint8_t control_message = buffer[2]; 
+        // uncommnet this if we need to use the payload
         // char* payload = buffer + 3;
 
-        printf("sequence no: %d , control message: %d\n", sequence_number, control_message);
+        printf("ping message recieved seq no: %d , control: %d\n", sequence_number, control_message);
 
         if (control_message == 0) {
             // Respond immediately with the same payload
@@ -89,15 +79,16 @@ int main() {
             }
         } else if (control_message == 1) {
             // Delay the response by 555 milliseconds
-            usleep(555000);
+            usleep(WAIT_TIME);
             if (sendto(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_address, addr_len) == -1) {
                 perror("Sendto error");
             }
         } else {
-            char* ipStr = sockaddrToString((struct sockaddr *)&client_address);
+            // For control_message >= 2, ignore the packet and don't respond, print error
+            char *ipStr = convertSockaddrToIPString((struct sockaddr *)&client_address);
             printf("Invalid command recieved from %s\n", ipStr);
         }
-        // For control_message == 2, ignore the packet and don't respond
+        
 
     }
 

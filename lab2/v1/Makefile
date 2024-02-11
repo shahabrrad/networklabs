@@ -12,7 +12,7 @@ OBJS = $(SRCS:.c=.o)
 TARGETS = pings.bin pingc.bin
 
 # Headers for the binary
-DEPS = ip.h
+DEPS = ip.h constants.h
 
 all: $(TARGETS)
 

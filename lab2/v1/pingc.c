@@ -7,11 +7,13 @@
 #include <sys/time.h>
 
 #include "ip.h"
+#include "constants.h"
 
-#define DEFAULT_IP "128.10.112.135"   // Change this to the server's IP address
-#define DEFAULT_PORT 444444       // Change this to the server's port number
-#define MAX_ATTEMPTS 8
+
+#define MAX_ATTEMPTS 10
 #define TIMEOUT 1.0
+#define INITIAL_SEQ 0
+#define CONTROL 1
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -42,12 +44,13 @@ int main(int argc, char *argv[]) {
     get_ip(client_ip);
     printf("pingc %s %d %s %%\n", server_ip, server_port, client_ip);
 
-    int sequence_number = 5;
+    // initial sequence number is zero
+    int sequence_number = INITIAL_SEQ;
     uint16_t sequence_number_network; // Network byte order
     uint8_t control_message;
     char payload[97]; // 100 bytes total (2 bytes seq, 1 byte control, 97 bytes payload)
     
-    char message[100];
+    char message[BUFFER_SIZE];
     
     while (sequence_number < MAX_ATTEMPTS) {
         sequence_number++;
@@ -58,12 +61,10 @@ int main(int argc, char *argv[]) {
         gettimeofday(&start_time, NULL);
 
         // Populate the message components
-        sequence_number_network = sequence_number; //htons(sequence_number);
-        control_message = 2;  // Change this value as needed
-        // memset(payload, 'A', sizeof(payload)); // Fill the payload with 'A' characters
-        // memset(payload, '0', sizeof(payload)); // Fill the payload with 'A' characters
-        uint8_t first_digit = 0;
-        memcpy(payload, &first_digit, sizeof(first_digit));
+        sequence_number_network = sequence_number; 
+        control_message = CONTROL;  // Change this value as needed
+        memset(payload, 'A', sizeof(payload)); // Fill the payload with 'A' characters
+
 
         // Construct the message buffer
         memcpy(message, &sequence_number_network, sizeof(sequence_number_network));
@@ -77,8 +78,6 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
 
-        printf("payload: %c\n", payload[0]);
-        printf("message+3: %s\n", message + 3);
 
         // Set a timeout for receiving the response
         struct timeval timeout;
@@ -89,7 +88,7 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
 
-        char response[128];
+        char response[BUFFER_SIZE];
         memset(response, 0, sizeof(response));
 
         // Receive the response from the server
@@ -101,9 +100,6 @@ int main(int argc, char *argv[]) {
             if (recieved_seq_number == sequence_number){
                 gettimeofday(&end_time, NULL);
                 double rtt = (end_time.tv_sec - start_time.tv_sec) * 1000.0 + (end_time.tv_usec - start_time.tv_usec) / 1000.0;
-            // printf("Response from %s: %s | RTT: %.2f ms\n", server_ip, response, rtt);
-            // printf("Response from %s: Seq=%u, Control=%u, RTT: %.2f ms\n", server_ip,
-            //        ntohs(*(uint16_t*)(response)), response[2], rtt);
                 printf("Response from %s: Seq=%u, Control=%u, RTT: %.2f ms\n", server_ip,
                    recieved_seq_number, response[2], rtt);
             } else {
