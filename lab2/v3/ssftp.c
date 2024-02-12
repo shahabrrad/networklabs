@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
     // char *client_ip = argv[4];
     // int packet_size = atoi(argv[5]);
 
-    char file_name[FILENAME_LENGTH + 1];
+    char file_name[FILENAME_LENGTH + 1]; // + 1];
     strcpy(file_name, filename);
 
 
@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     int len = strlen(file_name);
     if (len < FILENAME_LENGTH) {
         memset(file_name + len, 'Z', FILENAME_LENGTH - len);
-        file_name[FILENAME_LENGTH] = '\0'; // Ensure null termination
+        // file_name[FILENAME_LENGTH] = '\0'; // Ensure null termination
     }
     printf("%s\n", file_name);
     // return 0;
@@ -72,7 +72,9 @@ int main(int argc, char *argv[]) {
 
 
     char message[MAX_PACKET_SIZE];
+    char initial_message[FILENAME_LENGTH];
     
+    memcpy(initial_message, &file_name, 10); //sizeof(file_name));
 
     int seq_num = 0;
     int bytes_received;
@@ -89,12 +91,12 @@ int main(int argc, char *argv[]) {
     // Set alarm
     ualarm(TIMEOUT, 0); // Set alarm for 1 second
     // usleep(500000);
-    if (sendto(client_socket, message, sizeof(message), 0, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) {
+    if (sendto(client_socket, initial_message, sizeof(initial_message), 0, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) {
             perror("Sendto error");
             exit(1);
         }
     
-    file = fopen(file_name, "wb");
+    file = fopen(filename, "wb");
     if (file == NULL) {
         error("Error opening file");
     }
@@ -106,6 +108,8 @@ int main(int argc, char *argv[]) {
         }
         ualarm(0, 0);
 
+        // TODO wait for the file size
+
         int received_seq_num;
         memcpy(&received_seq_num, message, 2);
 
@@ -116,6 +120,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        // TODO change this so that the last packet recieved is saved in smaller size
         if (received_seq_num > last_seq_num) {
             packets[packets_received] = malloc(bytes_received - 2);
             if (packets[packets_received] == NULL) {
@@ -126,6 +131,8 @@ int main(int argc, char *argv[]) {
             packets_received++;
         }
 
+        // TODO: change it so that it can detect last packet if size is equal.
+        // I should calculate number of packets based on file size
         if (bytes_received < MAX_PACKET_SIZE) { // Last packet received
             break;
         }
@@ -134,7 +141,9 @@ int main(int argc, char *argv[]) {
     }
 
     // Write all packets into the file
+    // TODO handle lost packets
     for (int i = 0; i < packets_received; i++) {
+        printf("writing packets %d\n", i);
         fwrite(packets[i], 1, MAX_PACKET_SIZE - 2, file);
         free(packets[i]);
     }

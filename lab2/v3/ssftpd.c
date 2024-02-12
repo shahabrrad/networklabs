@@ -10,6 +10,7 @@
 
 #include "constants.h"
 #include "ip.h"
+#include "utils.h"
 
 #define MAX_PACKET_SIZE 1002 // 1000 bytes for data + 2 bytes for sequence number
 
@@ -63,15 +64,18 @@ int main() {
     printf("pings %s %d %%\n", server_ip, server_port);
 
     while (1) {
+        int bytes_received;
         char buffer[MAX_PACKET_SIZE];
         memset(buffer, 0, sizeof(buffer));
         int seq_num = 0;
 
         // Receive a ping request from a client
         // ssize_t bytes_received = recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_address, &addr_len);
-        recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_address, &addr_len);
-    return 0;
-FILE *file = fopen("sample.txt", "rb");
+        bytes_received = recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_address, &addr_len);
+        remove_trailing_Z(buffer);
+        printf("%s , %d\n", buffer, bytes_received);
+if (access(buffer, F_OK) != -1) {
+FILE *file = fopen(buffer, "rb");
     if (file == NULL) {
         error("Error opening file");
     }
@@ -87,6 +91,8 @@ FILE *file = fopen("sample.txt", "rb");
 
     fread(file_buffer, 1, file_size, file);
     fclose(file);
+
+    // TODO send file size
 
     int bytes_sent;
     int remaining_bytes = file_size;
@@ -109,7 +115,7 @@ FILE *file = fopen("sample.txt", "rb");
         seq_num++;
     }
         
-
+}
     }
 
     close(server_socket);

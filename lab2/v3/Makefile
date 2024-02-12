@@ -3,7 +3,7 @@ CC = gcc
 CFLAGS = -Wall -Werror
 
 # List of source files
-SRCS = ssftp.c ssftpd.c ip.c
+SRCS = ssftp.c ssftpd.c ip.c utils.c
 
 # List of object files (will be generated from source files)
 OBJS = $(SRCS:.c=.o)
@@ -12,14 +12,14 @@ OBJS = $(SRCS:.c=.o)
 TARGETS = ssftp.bin ssftpd.bin
 
 # Headers for the binary
-DEPS = ip.h
+DEPS = ip.h utils.h constants.h
 
 all: $(TARGETS)
 
 ssftp.bin: ssftp.o ip.o
 	$(CC) $(CFLAGS) $^ -o $@
 
-ssftpd.bin: ssftpd.o ip.o
+ssftpd.bin: ssftpd.o ip.o utils.o
 	$(CC) $(CFLAGS) $^ -o $@
 
 # Compile each source file into object files
