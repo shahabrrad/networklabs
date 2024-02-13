@@ -12,7 +12,7 @@
 #include "ip.h"
 #include "utils.h"
 
-#define MAX_PACKET_SIZE 1002 // 1000 bytes for data + 2 bytes for sequence number
+#define MAX_PACKET_SIZE 1001 // 1000 bytes for data + 2 bytes for sequence number
 
 #define DEFAULT_PORT 44444
 #define MAXIMUM_BINDS 10
@@ -67,13 +67,15 @@ int main() {
         int bytes_received;
         char buffer[MAX_PACKET_SIZE];
         memset(buffer, 0, sizeof(buffer));
-        int seq_num = 0;
+        uint8_t seq_num = 0;
 
-        // Receive a ping request from a client
+        // Receive a file_name
         // ssize_t bytes_received = recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_address, &addr_len);
         bytes_received = recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_address, &addr_len);
         remove_trailing_Z(buffer);
         printf("%s , %d\n", buffer, bytes_received);
+
+        // only open the file if it is exists
 if (access(buffer, F_OK) != -1) {
 FILE *file = fopen(buffer, "rb");
     if (file == NULL) {
@@ -83,7 +85,18 @@ FILE *file = fopen(buffer, "rb");
         fseek(file, 0, SEEK_END);
     long file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
+    printf("file size; %lu\n", file_size);
+    // return 1;
+    // send file size to client
+    unsigned char sizeBytes[3];
+    sizeBytes[0] = (file_size >> 16) & 0xFF;
+    sizeBytes[1] = (file_size >> 8) & 0xFF;
+    sizeBytes[2] = file_size & 0xFF;
+    // printf("buffer %s\n", *(uint16_t*)buffer);
 
+    if (sendto(server_socket, sizeBytes, sizeof(sizeBytes), 0, (struct sockaddr*)&client_address, addr_len) == -1) {
+                perror("Sendto error");
+            }
     char *file_buffer = malloc(file_size);
     if (file_buffer == NULL) {
         error("Memory allocation failed");
@@ -92,7 +105,6 @@ FILE *file = fopen(buffer, "rb");
     fread(file_buffer, 1, file_size, file);
     fclose(file);
 
-    // TODO send file size
 
     int bytes_sent;
     int remaining_bytes = file_size;
@@ -102,14 +114,16 @@ FILE *file = fopen(buffer, "rb");
 
     while (remaining_bytes > 0) {
         int bytes_to_send = remaining_bytes > 1000 ? 1000 : remaining_bytes;
-        memcpy(buffer + 2, ptr, bytes_to_send);
-        memcpy(buffer, &seq_num, 2);
+        memcpy(buffer + 1, ptr, bytes_to_send);
+        memcpy(buffer, &seq_num, 1);
+        // TODO send packets with bad order and test.
+        // if (seq_num != 5){
         printf("sending %d bytes with sequence number %d \n", bytes_sent, seq_num);
-        bytes_sent = sendto(server_socket, buffer, bytes_to_send + 2, 0, (struct sockaddr *)&client_address, addr_len);
+        bytes_sent = sendto(server_socket, buffer, bytes_to_send + 1, 0, (struct sockaddr *)&client_address, addr_len);
         if (bytes_sent < 0) {
             error("Error sending packet");
         }
-
+        // }
         ptr += bytes_to_send;
         remaining_bytes -= bytes_to_send;
         seq_num++;

@@ -9,7 +9,7 @@
 
 #include "constants.h" 
 
-#define MAX_PACKET_SIZE 1002 // 1000 bytes for data + 2 bytes for sequence number
+#define MAX_PACKET_SIZE 1001 // 1000 bytes for data + 1 bytes for sequence number
 #define MAX_PACKETS 8      // Maximum number of packets to store in memory
 
 #define TIMEOUT 500000
@@ -26,7 +26,9 @@ void alarm_handler(int signum) {
 
 
 int main(int argc, char *argv[]) {
+    // TODO get stuff from args
     FILE *file;
+    long filesize;
     struct sigaction sa;
     if (argc != 6) {
         printf("Usage: %s <file_name> <server_ip> <server_port> <client_ip> <packet_size>\n", argv[0]);
@@ -78,9 +80,9 @@ int main(int argc, char *argv[]) {
 
     int seq_num = 0;
     int bytes_received;
-    int last_seq_num = -1;
-    char *packets[MAX_PACKETS];
-    int packets_received = 0;
+    // int last_seq_num = -1;
+    // char *packets[MAX_PACKETS];
+    // int packets_received = 0;
 
     // Set up signal handler for SIGALRM
     sa.sa_handler = alarm_handler;
@@ -90,17 +92,33 @@ int main(int argc, char *argv[]) {
 
     // Set alarm
     ualarm(TIMEOUT, 0); // Set alarm for 1 second
-    // usleep(500000);
+
+    // send file name to serever
     if (sendto(client_socket, initial_message, sizeof(initial_message), 0, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) {
             perror("Sendto error");
             exit(1);
         }
     
-    file = fopen(filename, "wb");
-    if (file == NULL) {
-        error("Error opening file");
+    // Get file size in the first package
+    bytes_received = recvfrom(client_socket, message, sizeof(message), 0, NULL, NULL);
+    if (bytes_received != 3){
+        error("File size not sent from server in first packet");
     }
+    // disable alarm once the first package is recieved
+    ualarm(0, 0);
+    filesize = (message[0] << 16) | (message[1] << 8) | message[2];
+    printf("%d, %lu, %s, %lu\n", bytes_received, sizeof(message), message, filesize);
 
+    // calculate number of packets and last packet:
+    int number_of_packet = filesize / (MAX_PACKET_SIZE - 1);
+    int last_packet_size = (filesize % (MAX_PACKET_SIZE - 1)) + 1;
+
+    char *packets[number_of_packet];
+    // initialise the array
+    for (int i = 0; i < number_of_packet; i++) {
+        packets[i] = NULL;
+    }
+    // TODO check how long takes for file to arrive
     while (1) {
         bytes_received = recvfrom(client_socket, message, MAX_PACKET_SIZE, 0, NULL, NULL);
         if (bytes_received <= 0) {
@@ -108,45 +126,64 @@ int main(int argc, char *argv[]) {
         }
         ualarm(0, 0);
 
-        // TODO wait for the file size
-
         int received_seq_num;
-        memcpy(&received_seq_num, message, 2);
+        memcpy(&received_seq_num, message, 1);
 
         printf("recieved %d bytes with sequence number %d expected %d\n", bytes_received, received_seq_num, seq_num);
 
-        if (received_seq_num != seq_num) {
-            fprintf(stderr, "Packet out of order\n");
-            continue;
-        }
+        // no need to check packet order
+        // if (received_seq_num != seq_num) {
+        //     fprintf(stderr, "Packet out of order\n");
+        //     continue;
+        // }
 
-        // TODO change this so that the last packet recieved is saved in smaller size
-        if (received_seq_num > last_seq_num) {
-            packets[packets_received] = malloc(bytes_received - 2);
-            if (packets[packets_received] == NULL) {
+        packets[received_seq_num] = malloc(bytes_received - 1);
+            if (packets[received_seq_num] == NULL) {
                 error("Memory allocation failed");
             }
-            memcpy(packets[packets_received], message + 2, bytes_received - 2);
-            last_seq_num = received_seq_num;
-            packets_received++;
-        }
+        memcpy(packets[received_seq_num], message + 1, bytes_received - 1);
 
-        // TODO: change it so that it can detect last packet if size is equal.
-        // I should calculate number of packets based on file size
-        if (bytes_received < MAX_PACKET_SIZE) { // Last packet received
+        // TODO change this so that the last packet recieved is saved in smaller size
+        // if (received_seq_num > last_seq_num) {
+        //     packets[packets_received] = malloc(bytes_received - 1);
+        //     if (packets[packets_received] == NULL) {
+        //         error("Memory allocation failed");
+        //     }
+        //     memcpy(packets[packets_received], message + 1, bytes_received - 1);
+        //     last_seq_num = received_seq_num;
+        //     packets_received++;
+        // }
+
+
+        // if (bytes_received < MAX_PACKET_SIZE) { // Last packet received
+        if (received_seq_num == number_of_packet){
             break;
         }
 
         seq_num++;
     }
 
-    // Write all packets into the file
-    // TODO handle lost packets
-    for (int i = 0; i < packets_received; i++) {
-        printf("writing packets %d\n", i);
-        fwrite(packets[i], 1, MAX_PACKET_SIZE - 2, file);
-        free(packets[i]);
+    // create the file
+    file = fopen(filename, "wb");
+    if (file == NULL) {
+        error("Error opening file");
     }
+    // write the packets
+    int i;
+    for (i = 0; i < number_of_packet; i++) {
+        if (packets[i] == NULL){
+            printf("null packet in %d \n", i);
+        }else{
+        printf("writing packets %d \n", i);
+
+        fwrite(packets[i], 1, MAX_PACKET_SIZE-1, file);
+        free(packets[i]);
+        }
+    }
+    // write the last packets
+    printf("writing packets %d, %lu\n", i, sizeof(packets[i]));
+        fwrite(packets[i], 1, last_packet_size-1, file);
+        free(packets[i]);
 
     fclose(file);
 
