@@ -7,4 +7,6 @@
 
 #define FILENAME_LENGTH 10
 
+#define MAX_PACKET_SIZE 1401
+
 #endif

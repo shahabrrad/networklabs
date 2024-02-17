@@ -27,3 +27,19 @@ void get_ip(char *target) {
 
     // return IP;
 }
+
+char *convertSockaddrToIPString(const struct sockaddr *addr) {
+    static char ipString[INET6_ADDRSTRLEN];
+    
+    if (addr->sa_family == AF_INET) {
+        struct sockaddr_in *ipv4 = (struct sockaddr_in *)addr;
+        inet_ntop(AF_INET, &(ipv4->sin_addr), ipString, INET_ADDRSTRLEN);
+    } else if (addr->sa_family == AF_INET6) {
+        struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)addr;
+        inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipString, INET6_ADDRSTRLEN);
+    } else {
+        return NULL; // Unsupported address family
+    }
+
+    return strdup(ipString);
+}
