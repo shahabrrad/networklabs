@@ -6,8 +6,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <arpa/inet.h>
+#include <sys/wait.h>
+
 
 #include "parser.h"
+#include "ip.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -16,6 +19,8 @@
 #define PORT 8080
 #define MAX_MESSAGE_LENGTH 1024
 #define ALLOWED_PREFIX "128.10.112"
+
+
 
 
 int main() {
@@ -47,12 +52,16 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    // Print server IP address
-    struct sockaddr_in addr;
-    socklen_t addr_size = sizeof(struct sockaddr_in);
-    getsockname(server_socket, (struct sockaddr *)&addr, &addr_size);
-    char *server_ip = inet_ntoa(addr.sin_addr);
-    printf("Server IP address: %s\n", server_ip);
+    // // Print server IP address
+    // struct sockaddr_in addr;
+    // socklen_t addr_size = sizeof(struct sockaddr_in);
+    // getsockname(server_socket, (struct sockaddr *)&addr, &addr_size);
+    char server_ip[16]; // = inet_ntoa(addr.sin_addr);
+    // printf("Server IP address: %s\n", server_ip);
+    //  store server's ip in server_ip
+    get_ip(server_ip);
+    
+    printf("pings %s %d %%\n", server_ip, PORT);
 
     printf("Server is waiting for a client...\n");
     // Listen for incoming connections
@@ -67,6 +76,17 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
+    // // Check if the client IP matches the allowed prefix
+    //     char *client_ip = inet_ntoa(client_address.sin_addr);
+    //     if (strncmp(client_ip, ALLOWED_PREFIX, strlen(ALLOWED_PREFIX)) != 0) {
+    //         printf("Connection rejected from IP: %s\n", client_ip);
+    //         close(client_socket);
+    //         perror("wrong connection");
+    //         exit(EXIT_FAILURE);
+    //         // continue;
+    //     }
+
+
     printf("Client connected. Waiting for command...\n");
 
     while (1) {
@@ -76,15 +96,18 @@ int main() {
             perror("read");
             exit(EXIT_FAILURE);
         }
+
+        message[bytesRead] = '\0';
+
         printf("message recieved with length %d \n", bytesRead);
 
         if (bytesRead > 0) {
                 //  copy the message read 
-                char destination[bytesRead];
-                strncpy(destination, message, bytesRead);
+                // char destination[bytesRead];
+                // strncpy(destination, message, bytesRead);
 
                 //  tokenize the message to get each command seperated by \n
-                token = strtok(destination, "\n");
+                token = strtok(message, "\n");
 
                 // Walk through other tokens
                 while( token != NULL ) {
@@ -104,8 +127,17 @@ int main() {
   	                    // child code
     	                // if(execvp(args[0], args) == -1)	// if execution failed, terminate child
                         //     printf("error\n");
-                        execute_command(client_socket, token);
-	  	                    exit(1);
+                        // Check if the client IP matches the allowed prefix
+                        char *client_ip = inet_ntoa(client_address.sin_addr);
+                        if (strncmp(client_ip, ALLOWED_PREFIX, strlen(ALLOWED_PREFIX)) != 0) {
+                            printf("Command execution rejected from IP: %s\n", client_ip);
+                            close(client_socket);
+
+                            // continue;
+                        }else{
+                            execute_command(client_socket, token);
+                        }
+	  	                exit(1);
   	                }
   	                else {
   	                    // parent code 

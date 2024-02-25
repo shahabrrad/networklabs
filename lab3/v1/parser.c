@@ -44,6 +44,8 @@ char **split_string(char *buf) {
 }
 
 void execute_command(int client_socket, char *command) {
+
+
     char *args[1024]; // Maximum command length assumed
     
     // Tokenizing the command
@@ -54,6 +56,30 @@ void execute_command(int client_socket, char *command) {
         token = strtok(NULL, " ");
     }
     args[i] = NULL; // Last argument must be NULL for execvp
+
+    // Check if the command is "ls" or "date"
+    if (strcmp(args[0], "ls") != 0 && strcmp(args[0], "date") != 0) {
+        // Ignore any other command
+        char error_message[] = "command failed";
+        ssize_t bytesWritten = write(client_socket, error_message, strlen(error_message) + 1); // Include '\0' in the message
+        if (bytesWritten == -1) {
+                perror("write");
+            }
+        // exit(EXIT_FAILURE);
+        return;
+    }
+
+    // Check the number of arguments for "ls"
+    if (strcmp(args[0], "ls") == 0 && i > 4) {
+        // Ignore "ls" command with more than 3 arguments
+        char error_message[] = "command failed";
+        ssize_t bytesWritten = write(client_socket, error_message, strlen(error_message) + 1); // Include '\0' in the message
+        if (bytesWritten == -1) {
+                perror("write");
+            }
+        // exit(EXIT_FAILURE);
+        return;
+    }
     // Execute the command
     if (execvp(args[0], args) < 0) {
         perror("execvp");
