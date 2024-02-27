@@ -1,12 +1,14 @@
-// Server.c
+// Server
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-
+#include <fcntl.h>
 #include <sys/socket.h>
+#include <signal.h>
+
 
 #include "constants.h"
 #include "ip.h"
@@ -18,9 +20,30 @@
 #define MAXIMUM_BINDS 10
 #define WAIT_TIME 555000
 
+// global variables:
+int server_socket;
+
 void error(const char *msg) {
     perror(msg);
     exit(1);
+}
+
+// Signal handler for SIGIO
+void sigpoll_handler(int signum) {
+    char buffer[1];
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    
+    // Receive data packet
+    ssize_t recv_size = recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*) &client_addr, &addr_len);
+    if (recv_size < 0) {
+        perror("recvfrom failed");
+        return;
+    }
+    
+    // Process the received packet
+    printf("%s\n", buffer);
+    // Process the data in 'buffer'
 }
 
 
@@ -30,11 +53,13 @@ int main(int argc, char *argv[]) {
         printf("Usage: %s <server_ip> <server_port>\n", argv[0]);
         return 1; // Return an error code
     }
-    int server_socket;
+    // int server_socket;
     int server_port = atoi(argv[2]); //DEFAULT_PORT;
     struct sockaddr_in server_address, client_address;
     socklen_t addr_len = sizeof(client_address);
     char server_ip[16];
+
+    struct sigaction sa;
 
     // Create a UDP socket
     server_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -104,6 +129,28 @@ int main(int argc, char *argv[]) {
             fseek(file, 0, SEEK_SET);
             printf("file size; %lu\n", file_size);
 
+
+
+        /////////////////////////////////
+                    // Set the socket to non-blocking mode
+            fcntl(server_socket, F_SETFL, O_NONBLOCK);
+
+            // Set up signal handler for SIGPOLL
+            memset(&sa, 0, sizeof(sa));
+            sa.sa_handler = &sigpoll_handler;
+            if (sigaction(SIGPOLL, &sa, NULL) == -1) {
+                perror("sigaction failed");
+                exit(EXIT_FAILURE);
+            }
+
+            // Enable asynchronous I/O on the socket
+            if (fcntl(server_socket, F_SETFL, fcntl(server_socket, F_GETFL) | O_ASYNC) < 0) {
+                perror("fcntl O_ASYNC failed");
+                exit(EXIT_FAILURE);
+            }
+        /////////////////////////////////////
+
+
             // send file size to client
             unsigned char sizeBytes[3];
             sizeBytes[0] = (file_size >> 16) & 0xFF;
@@ -143,6 +190,7 @@ int main(int argc, char *argv[]) {
                 if (bytes_sent < 0) {
                     error("Error sending packet");
                 }
+                usleep(10000);
                 ptr += bytes_to_send;
                 remaining_bytes -= bytes_to_send;
                 seq_num++;

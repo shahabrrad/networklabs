@@ -1,6 +1,6 @@
 CC = gcc
 # Show all warnings and treat them as errors
-CFLAGS = -Wall -Werror
+CFLAGS = -Wall -Werror -D_GNU_SOURCE
 
 # List of source files
 SRCS = ssftp.c ssftpd.c ip.c utils.c

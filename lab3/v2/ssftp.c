@@ -13,6 +13,14 @@
 // #define MAX_PACKET_SIZE 1001 // 1000 bytes for data + 1 bytes for sequence number
 
 #define TIMEOUT 500000
+#define TIMEOUT_USEC 100000
+
+// global variables
+unsigned short seqmax;
+unsigned short seqmin;
+char** packets = NULL;
+int client_socket;
+struct sockaddr_in server_address;
 
 void error(const char *msg) {
     perror(msg);
@@ -24,13 +32,22 @@ void alarm_handler(int signum) {
     exit(EXIT_FAILURE);
 }
 
+void alarm_handler_lostpacket(int signum) {
+    printf("inside alarm handler\n");
+    unsigned short missing_seq_num;
+    for(missing_seq_num = seqmin; missing_seq_num < seqmax; missing_seq_num++) {
+        if (packets[missing_seq_num] == NULL) {
+            char buf[1] = {missing_seq_num};
+            sendto(client_socket, buf, sizeof(buf), 0, (struct sockaddr *)&server_address, sizeof(server_address));
+        }
+    }
+    alarm(1);
+    // fprintf(stderr, "Timeout: No response from the server.\n");
+    // exit(EXIT_FAILURE);
+}
+
 
 int main(int argc, char *argv[]) {
-
-    FILE *file;
-    long filesize;
-    struct timeval start_time, end_time;
-    struct sigaction sa;
     if (argc != 6) {
         printf("Usage: %s <file_name> <server_ip> <server_port> <client_ip> <packet_size>\n", argv[0]);
         return 1; // Return an error code
@@ -38,8 +55,19 @@ int main(int argc, char *argv[]) {
     char *filename = argv[1];
     char *server_ip = argv[2];
     int server_port = atoi(argv[3]);
-   // char *client_ip = argv[4];
+    // char *client_ip = argv[4];
     // int packet_size = atoi(argv[5]);
+
+    FILE *file;
+    long filesize;
+    struct timeval start_time, end_time;
+    struct sigaction sa;
+    // unsigned short seqmax;
+    // unsigned short seqmin;
+    // struct sigaction sa_lostpacket;
+    // struct itimerval timer;
+
+
 
     char file_name[FILENAME_LENGTH + 1]; 
     strcpy(file_name, filename);
@@ -53,8 +81,6 @@ int main(int argc, char *argv[]) {
     }
 
 
-    int client_socket;
-    struct sockaddr_in server_address;
 
 
     // Create a UDP socket
@@ -63,16 +89,6 @@ int main(int argc, char *argv[]) {
         perror("Socket creation error");
         exit(1);
     }
-
-
-    // set client address
-    //struct sockaddr_in client_addr;
-    //inet_pton(AF_INET, client_ip, &client_addr.sin_addr);
-
-  //  if(bind(client_socket, (struct sockaddr *)&client_addr, sizeof(client_addr))<0){
-//	perror("error binding");
-//exit(1);
-//}
 
 
     memset(&server_address, 0, sizeof(server_address));
@@ -131,14 +147,28 @@ int main(int argc, char *argv[]) {
     int number_of_recievied_packets = 0;
     double number_of_bytes_recieved = 0; 
 
-    char *packets[number_of_packet];
+    // char *packets[number_of_packet];
+    packets = (char**)malloc(number_of_packet * sizeof(char*));
     // initialise the array to save packets
     for (int i = 0; i < number_of_packet; i++) {
         packets[i] = NULL;
     }
 
+
+
+
+    // Set up the signal handler for lost packets
+    signal(SIGALRM, alarm_handler_lostpacket); // Register the handler for SIGALRM
+    alarm(1); // Set the initial alarm for 1 second (1000 milliseconds)
+
+
+
+    seqmax = 0;
+    seqmin = 0;
     while (1) {
+        printf("%d %d" , seqmax, seqmin);
         bytes_received = recvfrom(client_socket, message, MAX_PACKET_SIZE, 0, NULL, NULL);
+        printf("%d bytes are recieved \n", bytes_received);
         if (bytes_received <= 0) {
             break;
         }
@@ -147,6 +177,13 @@ int main(int argc, char *argv[]) {
         // int received_seq_num;
         uint8_t received_seq_num;
         memcpy(&received_seq_num, message, 1);
+
+        if (received_seq_num == seqmin){
+            seqmin++;
+        }
+        if (received_seq_num > seqmax){
+            seqmax = received_seq_num + 1;
+        }
 
         printf("recieved %d bytes with sequence number %d expected %d\n", bytes_received, received_seq_num, seq_num);
 
