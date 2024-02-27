@@ -21,6 +21,7 @@ unsigned short seqmin;
 char** packets = NULL;
 int client_socket;
 struct sockaddr_in server_address;
+int number_of_packet;
 
 void error(const char *msg) {
     perror(msg);
@@ -33,15 +34,23 @@ void alarm_handler(int signum) {
 }
 
 void alarm_handler_lostpacket(int signum) {
-    printf("inside alarm handler\n");
+    printf("inside handler\n");
     unsigned short missing_seq_num;
-    for(missing_seq_num = seqmin; missing_seq_num < seqmax; missing_seq_num++) {
-        if (packets[missing_seq_num] == NULL) {
-            char buf[1] = {missing_seq_num};
-            sendto(client_socket, buf, sizeof(buf), 0, (struct sockaddr *)&server_address, sizeof(server_address));
+    for(missing_seq_num = seqmin; missing_seq_num < seqmax+1; missing_seq_num++) {
+        // printf("missing seq no: %d \n", missing_seq_num);
+        if (packets[missing_seq_num] == NULL && missing_seq_num < number_of_packet) {
+            // printf("seq number not recieved: %d\n", missing_seq_num);
+            char buf[2] = {missing_seq_num, '\0'};
+            if(sendto(client_socket, buf, sizeof(buf), 0, (struct sockaddr *)&server_address, sizeof(server_address)) == -1) {
+                perror("Sendto error");
+                exit(1);
+            } //;
+            printf("packet sent with seq no %d\n", missing_seq_num);
         }
     }
-    alarm(1);
+    if (seqmin < number_of_packet){
+    ualarm(TIMEOUT_USEC, 0);
+    }
     // fprintf(stderr, "Timeout: No response from the server.\n");
     // exit(EXIT_FAILURE);
 }
@@ -134,7 +143,7 @@ int main(int argc, char *argv[]) {
 
 
     // calculate number of packets and last packet:
-    int number_of_packet = 0;
+    number_of_packet = 0;
     int last_packet_size = (filesize % (MAX_PACKET_SIZE - 1)) + 1;
     printf("last packet size will be: %d \n", last_packet_size);
     if (last_packet_size != 1){
@@ -159,16 +168,14 @@ int main(int argc, char *argv[]) {
 
     // Set up the signal handler for lost packets
     signal(SIGALRM, alarm_handler_lostpacket); // Register the handler for SIGALRM
-    alarm(1); // Set the initial alarm for 1 second (1000 milliseconds)
+    ualarm(TIMEOUT_USEC, 0); // Set the initial alarm for 1 second (1000 milliseconds)
 
 
 
     seqmax = 0;
     seqmin = 0;
     while (1) {
-        printf("%d %d" , seqmax, seqmin);
         bytes_received = recvfrom(client_socket, message, MAX_PACKET_SIZE, 0, NULL, NULL);
-        printf("%d bytes are recieved \n", bytes_received);
         if (bytes_received <= 0) {
             break;
         }
@@ -178,12 +185,19 @@ int main(int argc, char *argv[]) {
         uint8_t received_seq_num;
         memcpy(&received_seq_num, message, 1);
 
-        if (received_seq_num == seqmin){
-            seqmin++;
-        }
-        if (received_seq_num > seqmax){
-            seqmax = received_seq_num + 1;
-        }
+        // if (received_seq_num == seqmin){
+        //     seqmin++;
+        // }
+        // if (received_seq_num >= seqmax){
+        //     seqmax = received_seq_num + 1;
+        // }
+        // for(int i = seqmin; i < seqmax+1; i++) {
+        //      if (packets[i] != NULL) {
+        //         seqmin = i;
+        //      }else{
+        //         break;
+        //      }
+        // }
 
         printf("recieved %d bytes with sequence number %d expected %d\n", bytes_received, received_seq_num, seq_num);
 
@@ -198,9 +212,25 @@ int main(int argc, char *argv[]) {
                 error("Memory allocation failed");
             }
         memcpy(packets[received_seq_num], message + 1, bytes_received - 1);
+        // printf("recieved %d, min %d , max %d \n", received_seq_num, seqmin, seqmax);
 
-        if (received_seq_num == number_of_packet-1){    // last packet is recieved
+
+        if (received_seq_num >= seqmax){
+            seqmax = received_seq_num + 1;
+        }
+        for(int i = seqmin; i < seqmax+1; i++) {
+             if (packets[i] != NULL) {
+                seqmin = i+1;
+             }else{
+                break;
+             }
+        }
+        printf("recieved %d, min %d , max %d \n", received_seq_num, seqmin, seqmax);
+
+        if (seqmin >= number_of_packet){    // last packet is recieved
+            ualarm(0, 0);
             break;
+            // ualarm(0, 0);
         }
 
         seq_num++;
