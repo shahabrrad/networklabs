@@ -29,25 +29,36 @@ int transfer_mode;
 long file_size;
 char *file_buffer;
 struct sockaddr_in server_address, client_address;
+timer_t timerid;
 
- void io_handler(int);
 
- void sigalrm_handler(int);
+void io_handler(int);
 
-void set_socket_blocking(int sockfd) {
-    int opts = fcntl(sockfd, F_GETFL);
-    if (opts < 0) {
-        perror("fcntl(F_GETFL)");
-        exit(EXIT_FAILURE);
-    }
-    
-    opts &= ~O_NONBLOCK; // Clear the O_NONBLOCK flag
-    if (fcntl(sockfd, F_SETFL, opts) < 0) {
-        perror("fcntl(F_SETFL)");
-        exit(EXIT_FAILURE);
-    }
+void sigalrm_handler(int);
+
+void signal_handler(int sig, siginfo_t *si, void *uc) {
+    // Handler code here
+    // printf("Timer fired!\n");
+    printf("Timer expired. No packets received for %.1f seconds.\n", 1.5);
+    transfer_mode = 0;
 }
 
+// sets the sockets into blocking mode, not used
+// void set_socket_blocking(int sockfd) {
+//     int opts = fcntl(sockfd, F_GETFL);
+//     if (opts < 0) {
+//         perror("fcntl(F_GETFL)");
+//         exit(EXIT_FAILURE);
+//     }
+    
+//     opts &= ~O_NONBLOCK; // Clear the O_NONBLOCK flag
+//     if (fcntl(sockfd, F_SETFL, opts) < 0) {
+//         perror("fcntl(F_SETFL)");
+//         exit(EXIT_FAILURE);
+//     }
+// }
+
+// error handler
 void error(const char *msg) {
     perror(msg);
     exit(1);
@@ -65,11 +76,12 @@ int main(int argc, char *argv[]) {
     // struct sockaddr_in server_address, client_address;
     socklen_t addr_len = sizeof(client_address);
     char server_ip[16];
-
     // struct sigaction sa;
-    transfer_mode = 0;
 
-    //set random seed for random dropping packets
+    transfer_mode = 0;  //  flag showing if a file is being transfered
+
+    // set random seed for random dropping packets
+    // uncomment this when testing packet loss
     srand(time(NULL));
 
     // Create a UDP socket
@@ -79,6 +91,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    // Set server address informaiton
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(server_port);
@@ -101,13 +114,17 @@ int main(int argc, char *argv[]) {
     //  store server's ip in server_ip
     get_ip(server_ip);
     
-    printf("pings %s %d %%\n", server_ip, server_port);
+    printf("ssftp server: %s %d %%\n", server_ip, server_port);
 
+
+    // save the original configuration of socket before setting up async IO
     int original_owner = fcntl(server_socket, F_GETOWN);
     int original_flags = fcntl(server_socket, F_GETFL);
+
+
     // stay alive for next client requests
     while (1) {
-        transfer_mode = 0;
+        transfer_mode = 0;  // file is not being transfered
         int bytes_received;
         char buffer[MAX_PACKET_SIZE];
         memset(buffer, 0, sizeof(buffer));
@@ -126,24 +143,30 @@ int main(int argc, char *argv[]) {
         // Receive a file_name
         // ssize_t bytes_received = recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_address, &addr_len);
         bytes_received = recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_address, &addr_len);
-        remove_trailing_Z(buffer);
+        if (bytes_received < 10){
+            continue;
+        }
+        remove_trailing_Z(buffer);  // decode file name
+
+        // print the request recieved
         char *ipStr = convertSockaddrToIPString((struct sockaddr *)&client_address);
         printf("recieved initial request from %s with %d bytes\n", ipStr, bytes_received);
         printf("buffer0 %d\n", buffer[0]);
 
-        // only open the file if it is exists
+        
+        // get the complete file path from the file name
         char directory[] = "tmp/server/";
         char full_path[strlen(directory) + strlen(buffer) + 1];
         // Copy directory to the combined string
         strcpy(full_path, directory);
         // Concatenate filename to the combined string
         strcat(full_path, buffer);
-        // char *full_file_dir = "";
-        // sprintf(full_file_dir, "tmp/server/%s", buffer);
 
+
+        // only open the file if it is exists
         if (access(full_path, F_OK) != -1) {
-            transfer_mode = 1;
-        // get full file directory
+            transfer_mode = 1;  // file is being transfered
+        
             printf("Sending file %s\n", full_path);
             FILE *file = fopen(full_path, "rb");
             if (file == NULL) {
@@ -157,25 +180,23 @@ int main(int argc, char *argv[]) {
             printf("file size; %lu\n", file_size);
 
 
-            // send file size to client
+            // set up file size in a 3 byte packet
             unsigned char sizeBytes[3];
             sizeBytes[0] = (file_size >> 16) & 0xFF;
             sizeBytes[1] = (file_size >> 8) & 0xFF;
             sizeBytes[2] = file_size & 0xFF;
 
-
+            // send file size to client
             if (sendto(server_socket, sizeBytes, sizeof(sizeBytes), 0, (struct sockaddr*)&client_address, addr_len) == -1) {
                 perror("Sendto error");
             }
 
-            // read file
+            // read file then close it
             // char *file_buffer = malloc(file_size);
             file_buffer = malloc(file_size);
-
             if (file_buffer == NULL) {
                 error("Memory allocation failed");
             }
-
             fread(file_buffer, 1, file_size, file);
             fclose(file);
 
@@ -188,40 +209,54 @@ int main(int argc, char *argv[]) {
 
             // set alarm for 1.5 secs
             // signal(SIGALRM, sigalrm_handler); 
-
-            struct sigaction sa;
-memset(&sa, 0, sizeof(sa));
-sa.sa_handler = sigalrm_handler;
-sigaction(SIGALRM, &sa, NULL);
-
-            // alarm(1.5);
-            alarm(TRANSFER_END_TIMEOUT);
+            // struct sigaction sa;
+            // memset(&sa, 0, sizeof(sa));
+            // sa.sa_handler = sigalrm_handler;    // set alarm handler
+            // sigaction(SIGALRM, &sa, NULL);
+            // // alarm(1.5);
+            // alarm(TRANSFER_END_TIMEOUT);
 
             // ualarm(TRANSFER_END_TIMEOUT, 0);
+            // setup signal handler for 1.5 seconds timeout
+            struct sigaction sa;
+            memset(&sa, 0, sizeof(sa));
+            sa.sa_flags = SA_SIGINFO;
+            sa.sa_sigaction = signal_handler;
+            sigaction(SIGRTMIN, &sa, NULL);
+
+            //setup timer for the 1.5 second timeout
+            // timer_t timerid;
+            struct sigevent sev;
+            memset(&sev, 0, sizeof(sev));
+            sev.sigev_notify = SIGEV_SIGNAL;
+            sev.sigev_signo = SIGRTMIN;
+            sev.sigev_value.sival_ptr = &timerid;
+            timer_create(CLOCK_REALTIME, &sev, &timerid);
 
 
 
 
 
-    // Set up SIGPOLL handler
-    
-    struct sigaction setup_action;
-    setup_action.sa_handler = io_handler;
-    setup_action.sa_flags = SA_NODEFER; // Prevent blocking
-    if (sigaction(SIGPOLL, &setup_action, NULL) == -1) {
-        perror("Sigaction");
-        exit(EXIT_FAILURE);
-    }
 
-    // Set socket ownership and flags for asynchronous I/O
-    if (fcntl(server_socket, F_SETOWN, getpid()) < 0) {
-        perror("fcntl");
-        exit(EXIT_FAILURE);
-    }
-    if (fcntl(server_socket, F_SETFL, O_RDONLY | FASYNC) < 0) {
-        perror("fcntl");
-        exit(EXIT_FAILURE);
-    }
+            // Set up SIGPOLL handler for handling recieved acks
+            
+            struct sigaction setup_action;
+            setup_action.sa_handler = io_handler;
+            setup_action.sa_flags = SA_NODEFER; // Prevent blocking
+            if (sigaction(SIGPOLL, &setup_action, NULL) == -1) {
+                perror("Sigaction");
+                exit(EXIT_FAILURE);
+            }
+
+            // Set socket ownership and flags for asynchronous I/O
+            if (fcntl(server_socket, F_SETOWN, getpid()) < 0) {
+                perror("fcntl");
+                exit(EXIT_FAILURE);
+            }
+            if (fcntl(server_socket, F_SETFL, O_RDONLY | FASYNC) < 0) {
+                perror("fcntl");
+                exit(EXIT_FAILURE);
+            }
 
 
     // // set alarm for 1.5 secs
@@ -233,61 +268,64 @@ sigaction(SIGALRM, &sa, NULL);
 
             // send file packets
             while (transfer_mode == 1){ //remaining_bytes > 0) {
+                // stay in transfer mode even if all packets are sent normally (because resending might happen)
                 if (remaining_bytes > 0){
-                int bytes_to_send = remaining_bytes > MAX_PACKET_SIZE-1 ? MAX_PACKET_SIZE-1 : remaining_bytes;
-                memcpy(buffer + 1, ptr, bytes_to_send);
-                // memcpy(buffer, &seq_num, 1);
-                // TODO send packets with bad order and test.
-                // if (seq_num != 5){
-                //     seq_num = 6;
-                memcpy(buffer, &seq_num, 1);
-
-                // drop packet with 50 percent chance
+                    int bytes_to_send = remaining_bytes > MAX_PACKET_SIZE-1 ? MAX_PACKET_SIZE-1 : remaining_bytes;
+                    memcpy(buffer + 1, ptr, bytes_to_send); // set payload of the packet
+                    memcpy(buffer, &seq_num, 1);    // set sequence number of packet
 
 
-                int random_number = rand() % 5; // Generate a random number between 0 and 1
-                if (random_number != 0){
-                // if (seq_num != 5){
-                    printf("sending %d bytes with sequence number %d \n", bytes_to_send, seq_num);
-
-                    bytes_sent = sendto(server_socket, buffer, bytes_to_send + 1, 0, (struct sockaddr *)&client_address, addr_len);
-                        
-                    if (bytes_sent < 0) {
-                        error("Error sending packet");
+                    // int random_number = rand() % 5; // Generate a random number 
+                    // if (random_number == 0){    // only send the packet with 20 percent chance
+                        printf("sending %d bytes with sequence number %d \n", bytes_to_send, seq_num);
+                        bytes_sent = sendto(server_socket, buffer, bytes_to_send + 1, 0, (struct sockaddr *)&client_address, addr_len);
+                            
+                        if (bytes_sent < 0) {
+                            error("Error sending packet");
+                        }
+                    // } else{
+                    //     printf("not sending package no %d\n", seq_num);
+                    // }
+                    // usleep(100000);
+                    ptr += bytes_to_send;
+                    remaining_bytes -= bytes_to_send;
+                    seq_num++;
+                    
+                    // set timer if it is last packet
+                    if (remaining_bytes <= 0){
+                        struct itimerspec its;
+                        its.it_value.tv_sec = 1; // 1 second
+                        its.it_value.tv_nsec = 500000000; // 0.5 seconds
+                        its.it_interval.tv_sec = 0; // Non-repeating timer
+                        its.it_interval.tv_nsec = 0;
+                        timer_settime(timerid, 0, &its, NULL);
                     }
-                } else{
-                    printf("not sending package no %d\n", seq_num);
-                }
-                // usleep(100000);
-                ptr += bytes_to_send;
-                remaining_bytes -= bytes_to_send;
-                seq_num++;
                 }
             }
             printf("out of transfer mode\n");
 
+            // Reversing SIGPOLL Handler Setup
             struct sigaction reset_action;
-reset_action.sa_handler = SIG_DFL;
-reset_action.sa_flags = 0; // Reset flags to default
-if (sigaction(SIGPOLL, &reset_action, NULL) == -1) {
-    perror("Sigaction reset");
-    exit(EXIT_FAILURE);
-}
+            reset_action.sa_handler = SIG_DFL;
+            reset_action.sa_flags = 0; // Reset flags to default
+            if (sigaction(SIGPOLL, &reset_action, NULL) == -1) {
+                perror("Sigaction reset");
+                exit(EXIT_FAILURE);
+            }
 
-if (fcntl(server_socket, F_SETOWN, original_owner) < 0) {
-    perror("fcntl reset");
-    exit(EXIT_FAILURE);
-}
-if (fcntl(server_socket, F_SETFL, original_flags) < 0) {
-    perror("fcntl reset");
-    exit(EXIT_FAILURE);
-}
-            // set_socket_blocking(server_socket);
+            // Reversing Socket Configuration for Asynchronous I/O
+            if (fcntl(server_socket, F_SETOWN, original_owner) < 0) {
+                perror("fcntl reset");
+                exit(EXIT_FAILURE);
+            }
+            if (fcntl(server_socket, F_SETFL, original_flags) < 0) {
+                perror("fcntl reset");
+                exit(EXIT_FAILURE);
+            }
 
             // make socket back to blocking once transfer is over
             // set_socket_blocking(server_socket);
 
-        
         }
     }
 
@@ -296,58 +334,57 @@ if (fcntl(server_socket, F_SETFL, original_flags) < 0) {
 }
 
 
-
+//  handler funciton for handling negative acks
 void io_handler(int signal_recieved)
 {
-	int 			numbytes;	
-        // int 			addr_len;	
-        struct sockaddr_in 	their_addr;
-        socklen_t 			addr_len = sizeof(their_addr);
-        unsigned char buffer[2];
-	
-	// printf("The recvfrom proc. !\n");
+	int numbytes;	
+    struct sockaddr_in their_addr;
+    socklen_t addr_len = sizeof(their_addr);
+    unsigned char buffer[2];
 
-        if ((numbytes=recvfrom(server_socket, buffer, 2, 0, \
-                    (struct sockaddr *)&their_addr, &addr_len)) == -1) {
-                perror("recvfrom");
-                exit(1);
-        }
-	
-	// buffer[numbytes]='\0';
-    //     printf("got from %s --->%d \n  ",inet_ntoa(their_addr.sin_addr),buffer[0]);
-    //     printf("resetting alarm\n");
-    // printf("recieved signal %d\n", signal_recieved);
-    printf("resetting alarm\n");
-    alarm(TRANSFER_END_TIMEOUT);
-    signal(SIGALRM, sigalrm_handler); 
-    printf("alarm is reset\n");
+    // recieve negative ack from the server
+    if ((numbytes=recvfrom(server_socket, buffer, 2, 0, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
+        perror("recvfrom");
+         exit(1);
+    }
 
-        char buf[MAX_PACKET_SIZE];
-        memcpy(buf, &buffer[0], 1);
+    // printf("resetting alarm\n");
+    // alarm(TRANSFER_END_TIMEOUT);
+    // signal(SIGALRM, sigalrm_handler); 
+    // // printf("alarm is reset\n");
+    //reset timer
+    struct itimerspec its;
+    its.it_value.tv_sec = 1; // 1 second
+    its.it_value.tv_nsec = 500000000; // 0.5 seconds
+    its.it_interval.tv_sec = 0; // Non-repeating timer
+    its.it_interval.tv_nsec = 0;
+    timer_settime(timerid, 0, &its, NULL);
 
-        char *ptr = file_buffer;
-        int remaining_bytes = file_size;
-        int bytes_to_send;
-        for (size_t i = 0; i < buffer[0]; i++)
-        {
+    char buf[MAX_PACKET_SIZE];
+    memcpy(buf, &buffer[0], 1); // set sequence number of packet
+
+    char *ptr = file_buffer;
+    int remaining_bytes = file_size;
+    int bytes_to_send;
+    // Find the section of file corresponding with the sequence number
+    for (size_t i = 0; i < buffer[0]; i++){
             bytes_to_send = remaining_bytes > MAX_PACKET_SIZE-1 ? MAX_PACKET_SIZE-1 : remaining_bytes;
             ptr += bytes_to_send;
             remaining_bytes -= bytes_to_send;
-        }
+    }
 
-        memcpy(buf + 1, ptr, bytes_to_send);
+    memcpy(buf + 1, ptr, bytes_to_send);    // set the payload of the packet
 
-        printf("resending %d bytes with sequence number %d \n", bytes_to_send, buffer[0]);
-            int bytes_sent = sendto(server_socket, buf, bytes_to_send + 1, 0, (struct sockaddr *)&client_address, addr_len);
-                        
-            if (bytes_sent < 0) {
-                error("Error sending packet");
-            }
-        
-
+    printf("resending %d bytes with sequence number %d \n", bytes_to_send, buffer[0]);
+    int bytes_sent = sendto(server_socket, buf, bytes_to_send + 1, 0, (struct sockaddr *)&client_address, addr_len);
+    if (bytes_sent < 0) {
+        error("Error sending packet");
+    }   
 	return;
 }
 
+
+// alarm handler for detecting the end of file transer
 void sigalrm_handler(int signum) {
     printf("Timer expired. No packets received for %.1f seconds.\n", 1.5);
     transfer_mode = 0;

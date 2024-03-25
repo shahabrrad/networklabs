@@ -13,7 +13,7 @@
 #define MAX_ATTEMPTS 10
 #define TIMEOUT 1.0
 #define INITIAL_SEQ 0
-#define CONTROL 1
+#define CONTROL 0
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -63,7 +63,7 @@ int main(int argc, char *argv[]) {
         // Populate the message components
         sequence_number_network = sequence_number; 
         control_message = CONTROL;  // Change this value as needed
-        memset(payload, 'A', sizeof(payload)); // Fill the payload with 'A' characters
+        memset(payload, 0, sizeof(payload)); // Fill the payload with 'A' characters
 
 
         // Construct the message buffer

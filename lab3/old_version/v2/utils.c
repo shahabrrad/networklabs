@@ -8,4 +8,3 @@ void remove_trailing_Z(char *str) {
         len--; // Move backwards in the string
     }
 }
-

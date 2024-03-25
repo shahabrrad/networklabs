@@ -3,5 +3,4 @@
 
 void remove_trailing_Z(char *str);
 
-
 #endif

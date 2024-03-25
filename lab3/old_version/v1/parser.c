@@ -60,7 +60,7 @@ void execute_command(int client_socket, char *command) {
     // Check if the command is "ls" or "date"
     if (strcmp(args[0], "ls") != 0 && strcmp(args[0], "date") != 0) {
         // Ignore any other command
-        char error_message[] = "command failed: only ls and date are allowed";
+        char error_message[] = "command failed";
         ssize_t bytesWritten = write(client_socket, error_message, strlen(error_message) + 1); // Include '\0' in the message
         if (bytesWritten == -1) {
                 perror("write");
@@ -72,7 +72,7 @@ void execute_command(int client_socket, char *command) {
     // Check the number of arguments for "ls"
     if (strcmp(args[0], "ls") == 0 && i > 4) {
         // Ignore "ls" command with more than 3 arguments
-        char error_message[] = "command failed: number of arguments for ls exceeds maximum";
+        char error_message[] = "command failed";
         ssize_t bytesWritten = write(client_socket, error_message, strlen(error_message) + 1); // Include '\0' in the message
         if (bytesWritten == -1) {
                 perror("write");

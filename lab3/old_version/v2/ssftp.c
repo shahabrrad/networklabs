@@ -28,29 +28,31 @@ void error(const char *msg) {
     exit(1);
 }
 
-// called when the first request sent to the server timeouts
 void alarm_handler(int signum) {
     fprintf(stderr, "Timeout: No response from the server.\n");
     exit(EXIT_FAILURE);
 }
 
-// function called frequently to send negative ack for lost packets
 void alarm_handler_lostpacket(int signum) {
+    printf("inside handler\n");
     unsigned short missing_seq_num;
     for(missing_seq_num = seqmin; missing_seq_num < seqmax+1; missing_seq_num++) {
+        // printf("missing seq no: %d \n", missing_seq_num);
         if (packets[missing_seq_num] == NULL && missing_seq_num < number_of_packet) {
+            // printf("seq number not recieved: %d\n", missing_seq_num);
             char buf[2] = {missing_seq_num, '\0'};
             if(sendto(client_socket, buf, sizeof(buf), 0, (struct sockaddr *)&server_address, sizeof(server_address)) == -1) {
                 perror("Sendto error");
                 exit(1);
             } //;
-            printf("NEG ACK seq no %d\n", missing_seq_num);
+            printf("packet sent with seq no %d\n", missing_seq_num);
         }
     }
-    // reset the alarm if the transfer has not finished
     if (seqmin < number_of_packet){
-        ualarm(TIMEOUT_USEC, 0);
+    ualarm(TIMEOUT_USEC, 0);
     }
+    // fprintf(stderr, "Timeout: No response from the server.\n");
+    // exit(EXIT_FAILURE);
 }
 
 
@@ -69,6 +71,11 @@ int main(int argc, char *argv[]) {
     long filesize;
     struct timeval start_time, end_time;
     struct sigaction sa;
+    // unsigned short seqmax;
+    // unsigned short seqmin;
+    // struct sigaction sa_lostpacket;
+    // struct itimerval timer;
+
 
 
     char file_name[FILENAME_LENGTH + 1]; 
@@ -83,6 +90,8 @@ int main(int argc, char *argv[]) {
     }
 
 
+
+
     // Create a UDP socket
     client_socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (client_socket == -1) {
@@ -90,7 +99,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    // set the server address
+
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(server_port);
@@ -112,8 +121,8 @@ int main(int argc, char *argv[]) {
     sa.sa_flags = 0;
     sigaction(SIGALRM, &sa, NULL);
 
-    ualarm(TIMEOUT, 0); // Set alarm for 1 second
 
+    ualarm(TIMEOUT, 0); // Set alarm for 1 second
 
     gettimeofday(&start_time, NULL);    // start recording time
 
@@ -133,7 +142,7 @@ int main(int argc, char *argv[]) {
     filesize = (message[0] << 16) | (message[1] << 8) | message[2];
 
 
-    // calculate number of packets and the last packet size:
+    // calculate number of packets and last packet:
     number_of_packet = 0;
     int last_packet_size = (filesize % (MAX_PACKET_SIZE - 1)) + 1;
     printf("last packet size will be: %d \n", last_packet_size);
@@ -147,7 +156,6 @@ int main(int argc, char *argv[]) {
     int number_of_recievied_packets = 0;
     double number_of_bytes_recieved = 0; 
 
-    // create an array to save recieved packets
     // char *packets[number_of_packet];
     packets = (char**)malloc(number_of_packet * sizeof(char*));
     // initialise the array to save packets
@@ -177,6 +185,19 @@ int main(int argc, char *argv[]) {
         uint8_t received_seq_num;
         memcpy(&received_seq_num, message, 1);
 
+        // if (received_seq_num == seqmin){
+        //     seqmin++;
+        // }
+        // if (received_seq_num >= seqmax){
+        //     seqmax = received_seq_num + 1;
+        // }
+        // for(int i = seqmin; i < seqmax+1; i++) {
+        //      if (packets[i] != NULL) {
+        //         seqmin = i;
+        //      }else{
+        //         break;
+        //      }
+        // }
 
         printf("recieved %d bytes with sequence number %d expected %d\n", bytes_received, received_seq_num, seq_num);
 
@@ -186,20 +207,17 @@ int main(int argc, char *argv[]) {
         //     continue;
         // }
 
-        // write the recieved packet into memory in array
         packets[received_seq_num] = malloc(bytes_received - 1);
-        if (packets[received_seq_num] == NULL) {
-            error("Memory allocation failed");
-        }
+            if (packets[received_seq_num] == NULL) {
+                error("Memory allocation failed");
+            }
         memcpy(packets[received_seq_num], message + 1, bytes_received - 1);
         // printf("recieved %d, min %d , max %d \n", received_seq_num, seqmin, seqmax);
 
-        // recalculate seqmax
+
         if (received_seq_num >= seqmax){
             seqmax = received_seq_num + 1;
         }
-
-        // recalculate seqmin
         for(int i = seqmin; i < seqmax+1; i++) {
              if (packets[i] != NULL) {
                 seqmin = i+1;
@@ -212,6 +230,7 @@ int main(int argc, char *argv[]) {
         if (seqmin >= number_of_packet){    // last packet is recieved
             ualarm(0, 0);
             break;
+            // ualarm(0, 0);
         }
 
         seq_num++;
@@ -220,9 +239,9 @@ int main(int argc, char *argv[]) {
     // create the file
     char directory[] = "tmp/client/";
     char full_path[strlen(directory) + strlen(filename) + 1];
-    // Copy directory to the combined string
+        // Copy directory to the combined string
     strcpy(full_path, directory);
-    // Concatenate filename to the combined string
+        // Concatenate filename to the combined string
     strcat(full_path, filename);
     printf("%s \n", full_path);
     file = fopen(full_path, "wb");
@@ -235,7 +254,7 @@ int main(int argc, char *argv[]) {
         if (packets[i] == NULL){
             printf("null packet in %d \n", i);
         }else{
-        printf("writing packet with seq no %d \n", i);
+        printf("writing packets %d \n", i);
         if (i == number_of_packet-1){   // handle last packet
             if (last_packet_size != 1){
                 fwrite(packets[i], 1, last_packet_size-1, file);    //if last packet size is different

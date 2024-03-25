@@ -16,7 +16,6 @@
 
 
 #define PORT 8080
-#define SERVER_IP "128.10.112.135"
 
 void sigpipe_handler(int signum) {
     printf("SIGPIPE error with FIFO.\n");
@@ -42,7 +41,7 @@ int main() {
     printf("Client is waiting to connect...\n");
 
     // Convert IPv4 and IPv6 addresses from text to binary form
-    if (inet_pton(AF_INET, SERVER_IP, &server_address.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, "127.0.0.1", &server_address.sin_addr) <= 0) {
         perror("Invalid address/ Address not supported");
         exit(EXIT_FAILURE);
     }
@@ -55,23 +54,23 @@ int main() {
 
     printf("Connected to the server. Type a command (type 'exit' to quit):\n");
     char response[1024];
-    // while (1) {
+    while (1) {
         printf("?");
         fgets(command, sizeof(command), stdin); //  get the message to send to the server
         if ( (strlen(command) > 30) ){ 
             printf("command length exceeds maximum 30: %s\n", command);
             fflush(stdin);
         }else{
-            // if (strncmp(command, "exit", 4) == 0) {     //  exit program
-            //     break;
-            // }
+            if (strncmp(command, "exit", 4) == 0) {     //  exit program
+                break;
+            }
             ualarm(500000, 0);
             ssize_t bytesWritten = write(client_socket, command, strlen(command));
 
             if (bytesWritten == -1) {
                 perror("write");
                 printf("An error occured while trying to write to FIFO\n");
-                // break; // Exit the loop and terminate the program on write error
+                break; // Exit the loop and terminate the program on write error
             }
 
             // Wait for response from the server
@@ -90,7 +89,7 @@ int main() {
             printf("Server Response: %s\n", response);
         }
         }
-    // }
+    }
 
     close(client_socket);
     return 0;

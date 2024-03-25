@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 
+
 #include "parser.h"
 #include "ip.h"
 
@@ -25,7 +26,6 @@
 int main() {
     char *token;
     int k;
-    int j;
     int status;
     int len;
 
@@ -61,11 +61,11 @@ int main() {
     //  store server's ip in server_ip
     get_ip(server_ip);
     
-    printf("remote cmd %s %d %%\n", server_ip, PORT);
-while(1){
+    printf("pings %s %d %%\n", server_ip, PORT);
+
     printf("Server is waiting for a client...\n");
     // Listen for incoming connections
-    if (listen(server_socket, 5) < 0) {
+    if (listen(server_socket, 3) < 0) {
         perror("listen");
         exit(EXIT_FAILURE);
     }
@@ -75,10 +75,6 @@ while(1){
         perror("accept");
         exit(EXIT_FAILURE);
     }
-
-    j = fork();
-  	if (j==0) {
-        //chile code
 
     // // Check if the client IP matches the allowed prefix
     //     char *client_ip = inet_ntoa(client_address.sin_addr);
@@ -93,18 +89,17 @@ while(1){
 
     printf("Client connected. Waiting for command...\n");
 
-    // while (1) {
+    while (1) {
         memset(message, 0, MAX_MESSAGE_LENGTH); // Clear command buffer
         int bytesRead = read(client_socket, message, MAX_MESSAGE_LENGTH);
-        printf("bytes read %d \n", bytesRead);
         if (bytesRead <= 0) {
             perror("read");
             exit(EXIT_FAILURE);
         }
 
-	message[bytesRead] = '\0';
+        message[bytesRead] = '\0';
 
-        printf("message recieved with length %d : %s \n", bytesRead, message);
+        printf("message recieved with length %d \n", bytesRead);
 
         if (bytesRead > 0) {
                 //  copy the message read 
@@ -112,7 +107,7 @@ while(1){
                 // strncpy(destination, message, bytesRead);
 
                 //  tokenize the message to get each command seperated by \n
-                token = strtok(message, "\n"); //strtok(destination, "\n");
+                token = strtok(message, "\n");
 
                 // Walk through other tokens
                 while( token != NULL ) {
@@ -152,19 +147,11 @@ while(1){
                     // 
                     token = strtok(NULL, "\n");     //  go for the next token or command
                 }
-            // }
+            }
             
         }
-        exit(1);
-    }
-    // }else{
-  	//                     // parent code 
-	//                     waitpid(k, &status, 0);		// block until child process terminates
-  	//                 }
 
 
     // close(fd);
-    // return 0;
-}
-return 0;
+    return 0;
 }
